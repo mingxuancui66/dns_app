@@ -8,7 +8,7 @@ services:
       AS_PORT: "53533"
       AS_DATA_FILE: /data/records.json
     volumes:
-      - ./data:/data
+      - as_data:/data
     networks:
       dnsnet:
         ipv4_address: 172.28.0.2
@@ -47,3 +47,6 @@ networks:
     ipam:
       config:
         - subnet: 172.28.0.0/24
+
+volumes:
+  as_data:

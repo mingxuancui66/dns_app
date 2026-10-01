@@ -30,10 +30,11 @@ def save_records(records):
 
 def parse_fields(line):
     result = {}
-    for item in line.split():
-        key, separator, value = item.partition("=")
-        if separator:
-            result[key] = value
+    for row in line.splitlines():
+        for item in row.split():
+            key, separator, value = item.partition("=")
+            if separator:
+                result[key] = value
     return result
 
 
@@ -41,32 +42,41 @@ class NameServer(socketserver.BaseRequestHandler):
     def handle(self):
         packet, udp_socket = self.request
         message = packet.decode("utf-8", errors="replace")
-        lines = [line.strip() for line in message.splitlines() if line.strip()]
-
-        if not lines or lines[0] != "TYPE=A" or len(lines) < 2:
+        fields = parse_fields(message)
+        if fields.get("TYPE") != "A":
             udp_socket.sendto(b"ERROR=BAD_REQUEST\n", self.client_address)
             return
 
-        fields = parse_fields(lines[1])
         hostname = fields.get("NAME", "")
         if not hostname:
             udp_socket.sendto(b"ERROR=BAD_REQUEST\n", self.client_address)
             return
 
-        # A registration includes VALUE and TTL. A lookup contains only NAME.
-        if "VALUE" in fields:
-            value = fields["VALUE"]
-            if not value or not fields.get("TTL", ""):
+
+
+        if "VALUE" in fields or "TTL" in fields:
+            value = fields.get("VALUE", "")
+            raw_ttl = fields.get("TTL", "")
+            if not value or not raw_ttl:
+                udp_socket.sendto(b"ERROR=BAD_REQUEST\n", self.client_address)
                 return
             try:
-                ttl = int(fields["TTL"])
+                ttl = int(raw_ttl)
+                if ttl < 0:
+                    raise ValueError("TTL must be nonnegative")
             except ValueError:
+                udp_socket.sendto(b"ERROR=BAD_REQUEST\n", self.client_address)
                 return
-            with LOCK:
-                records = load_records()
-                records[hostname] = {"ip": value, "ttl": ttl}
-                save_records(records)
+            try:
+                with LOCK:
+                    records = load_records()
+                    records[hostname] = {"ip": value, "ttl": ttl}
+                    save_records(records)
+            except OSError:
+                udp_socket.sendto(b"ERROR=REGISTRATION_FAILED\n", self.client_address)
+                return
             print("Registered %s -> %s" % (hostname, value), flush=True)
+            udp_socket.sendto(b"Success", self.client_address)
             return
 
         with LOCK:
@@ -76,7 +86,7 @@ class NameServer(socketserver.BaseRequestHandler):
             udp_socket.sendto(b"ERROR=NOT_FOUND\n", self.client_address)
             return
 
-        reply = "TYPE=A\nNAME=%s VALUE=%s TTL=%s\n" % (
+        reply = "TYPE=A\nNAME=%s\nVALUE=%s\nTTL=%s\n" % (
             hostname,
             record["ip"],
             record.get("ttl", 10),

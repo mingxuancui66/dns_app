@@ -7,11 +7,14 @@ from urllib.parse import parse_qs, urlsplit
 
 BIND_HOST = os.environ.get("FS_HOST", "0.0.0.0")
 BIND_PORT = int(os.environ.get("FS_PORT", "9090"))
+AS_TIMEOUT = float(os.environ.get("AS_TIMEOUT", "3"))
 
 
 def fibonacci(number):
+    if number < 1:
+        raise ValueError("number must be a positive sequence number")
     previous, current = 0, 1
-    for _ in range(number):
+    for _ in range(number - 1):
         previous, current = current, previous + current
     return previous
 
@@ -52,14 +55,19 @@ class FileServer(BaseHTTPRequestHandler):
             self.send_body(400, "Invalid registration request\n")
             return
 
-        message = "TYPE=A\nNAME=%s VALUE=%s TTL=10\n" % (hostname, ip)
+        message = "TYPE=A\nNAME=%s\nVALUE=%s\nTTL=10\n" % (hostname, ip)
         try:
             targets = socket.getaddrinfo(as_ip, as_port, type=socket.SOCK_DGRAM)
             family, socktype, protocol, _, address = targets[0]
             with socket.socket(family, socktype, protocol) as udp_socket:
+                udp_socket.settimeout(AS_TIMEOUT)
                 udp_socket.sendto(message.encode("utf-8"), address)
+                response, _ = udp_socket.recvfrom(4096)
+            if response.decode("utf-8", errors="replace").strip() != "Success":
+                self.send_body(500, "AS did not confirm the registration\n")
+                return
         except (OSError, IndexError):
-            self.send_body(502, "Could not send registration to AS\n")
+            self.send_body(500, "Could not complete registration with AS\n")
             return
 
         self.send_body(201, "Registered %s\n" % hostname)
@@ -74,11 +82,11 @@ class FileServer(BaseHTTPRequestHandler):
         raw_number = parameters.get("number", [""])[0]
         try:
             number = int(raw_number)
-            if number < 0:
-                raise ValueError("number must be nonnegative")
+            if number < 1:
+                raise ValueError("number must be a positive sequence number")
             result = fibonacci(number)
         except (TypeError, ValueError):
-            self.send_body(400, "number must be a nonnegative integer\n")
+            self.send_body(400, "number must be a positive integer\n")
             return
 
         self.send_body(200, str(result) + "\n")

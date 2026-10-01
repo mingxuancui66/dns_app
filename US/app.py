@@ -21,15 +21,14 @@ def find_record(as_ip, as_port, hostname):
         response, _ = udp_socket.recvfrom(4096)
 
     text = response.decode("utf-8", errors="replace")
+    fields = {}
     for line in text.splitlines():
-        if line.startswith("NAME="):
-            fields = {}
-            for item in line.split():
-                key, separator, value = item.partition("=")
-                if separator:
-                    fields[key] = value
-            if fields.get("NAME") == hostname and fields.get("VALUE"):
-                return fields["VALUE"]
+        for item in line.split():
+            key, separator, value = item.partition("=")
+            if separator:
+                fields[key] = value
+    if fields.get("TYPE") == "A" and fields.get("NAME") == hostname and fields.get("VALUE"):
+        return fields["VALUE"]
     raise LookupError(text.strip() or "AS returned an empty response")
 
 
