@@ -1,0 +1,49 @@
+services:
+  as:
+    build: ./AS
+    ports:
+      - "53533:53533/udp"
+    environment:
+      AS_HOST: 0.0.0.0
+      AS_PORT: "53533"
+      AS_DATA_FILE: /data/records.json
+    volumes:
+      - ./data:/data
+    networks:
+      dnsnet:
+        ipv4_address: 172.28.0.2
+    restart: unless-stopped
+
+  fs:
+    build: ./FS
+    ports:
+      - "9090:9090"
+    environment:
+      FS_HOST: 0.0.0.0
+      FS_PORT: "9090"
+    networks:
+      dnsnet:
+        ipv4_address: 172.28.0.3
+    restart: unless-stopped
+
+  us:
+    build: ./US
+    ports:
+      - "8080:8080"
+    environment:
+      US_HOST: 0.0.0.0
+      US_PORT: "8080"
+      NETWORK_TIMEOUT: "3"
+    networks:
+      dnsnet:
+        ipv4_address: 172.28.0.4
+    depends_on:
+      - as
+      - fs
+    restart: unless-stopped
+
+networks:
+  dnsnet:
+    ipam:
+      config:
+        - subnet: 172.28.0.0/24
